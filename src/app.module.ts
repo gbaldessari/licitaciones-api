@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { HttpModule } from '@nestjs/axios';
 import { MercadoPublicoService } from './mercado-publico.service';
 import { ConfigModule } from '@nestjs/config';
@@ -15,7 +14,6 @@ import { ConfigModule } from '@nestjs/config';
   ],
   controllers: [AppController],
   providers: [
-    AppService,
     MercadoPublicoService,
   ],
 })
