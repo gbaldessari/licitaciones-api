@@ -1,80 +1,110 @@
-# licitaciones-api
+# Licitaciones API (NestJS + Mercado Público)
 
-Servicio Django + DRF para obtener y filtrar licitaciones desde la API pública de Mercado Público.
+API mínima en NestJS para consultar licitaciones desde la API pública de Mercado Público.
 
-Pasos de instalación rápida:
+## Requisitos
 
-1) Crear entorno e instalar dependencias
-   - py -m venv .venv
-   - .venv\Scripts\activate
-   - pip install -r requirements.txt
+- Node.js 18+ y npm
+- Dependencias:
+  - npm i @nestjs/axios
+  - npm i @nestjs/config
 
-2) Crear proyecto y app (si aún no existen en este repo)
-   - django-admin startproject licitaciones_api .
-   - py manage.py startapp licitaciones
+## Variables de entorno
 
-3) Variables de entorno
-   - Copiar `.env.example` a `.env` y definir `MERCADO_PUBLICO_API_KEY` (ticket de Mercado Público).
+El proyecto lee automáticamente los archivos .ENV o .env gracias a @nestjs/config.
 
-4) Configurar Django
-   - Editar `licitaciones_api/settings.py` para:
-     - Cargar `.env`
-     - Agregar `rest_framework` y `licitaciones` en `INSTALLED_APPS`
-   - Editar `licitaciones_api/urls.py` para añadir la ruta `/api/licitaciones`.
+```sh
+MP_API_TICKET=TU_TICKET_AQUI
+MP_API_BASE_URL=https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json
+MP_API_RETRY_ATTEMPTS=3
+MP_API_RETRY_DELAY_MS=1500
+```
 
-5) Archivos clave a crear/editar (ver bloques de código por archivo en este README):
-   - requirements.txt
-   - .env.example
-   - licitaciones_api/settings.py (agregar configuraciones)
-   - licitaciones_api/urls.py (agregar endpoint)
-   - licitaciones/services/mercado_publico.py (servicio HTTP)
-   - licitaciones/views.py (vista DRF)
+## Servicio: MercadoPublicoService
 
-6) Ejecutar
-   - py manage.py runserver
-   - Probar:
-     - <http://127.0.0.1:8000/api/licitaciones?estado=abierta&fecha_desde=2025-01-01&fecha_hasta=2025-01-31>
-     - <http://127.0.0.1:8000/api/licitaciones?codigo=12345-1-LQ25>
+Servicio que consume la API de Mercado Público.
 
-Endpoint
+Métodos:
 
-- GET /api/licitaciones/  ← nota el slash final
-  - Query params:
-    - estado: una de [publicada, cerrada, adjudicada, desierta, revocada, suspendida]
-      - alias aceptado: abierta -> publicada
-    - fecha_desde (YYYY-MM-DD): fecha inicial del rango
-    - fecha_hasta (YYYY-MM-DD): fecha final del rango
-      - para un solo día, usa solo fecha_desde (o solo fecha_hasta)
-      - rango máximo permitido: 31 días
-    - codigo: código exacto de licitación (si se envía, se prioriza y no se combinan otros filtros)
-  - Respuesta: JSON con el payload de Mercado Público. Para rangos, se consolida como {"Cantidad","Listado"}.
-  - Códigos de estado:
-    - 200: OK
-    - 400: validación (fechas inválidas, rango > 31 días, etc.)
-    - 500: configuración local (API key faltante)
-    - 502: error HTTP del upstream (detalle incluido)
-    - 503: servicio ocupado (peticiones simultáneas). Incluye Retry-After.
-    - 504: timeout del upstream
+- getLicitacionesPorEstado(estado = 'publicada', extraParams?: Record<string, string | number>)
+  - Retorna licitaciones filtradas por estado.
+  - Puedes agregar parámetros extra soportados por la API (p.ej., fecha, pagina, codigoEntidad, etc.).
+- getLicitacionPorCodigo(codigo: string)
+  - Retorna una licitación específica por su código (ej: 1234-5-LR24).
 
-Ejemplos (curl)
-- Rango de 7 días (usa alias 'abierta' => 'publicada'):
-  curl -s "http://127.0.0.1:8000/api/licitaciones/?estado=abierta&fecha_desde=2025-01-01&fecha_hasta=2025-01-07"
+Errores:
 
-- Un solo día:
-  curl -s "http://127.0.0.1:8000/api/licitaciones/?estado=publicada&fecha_desde=2025-01-15"
+- 500 si falta MP_API_TICKET.
+- 502 si hay un error al consultar Mercado Público (propaga status y mensaje del upstream cuando es posible).
 
-- Solo por estado (sin fechas):
-  curl -s "http://127.0.0.1:8000/api/licitaciones/?estado=publicada"
+Uso interno (inyección en controladores/servicios):
 
-- Búsqueda por código exacto:
-  curl -s "http://127.0.0.1:8000/api/licitaciones/?codigo=12345-1-LQ25"
+```ts
+constructor(private readonly mp: MercadoPublicoService) {}
 
-Ejemplos (navegador)
-- http://127.0.0.1:8000/api/licitaciones/?estado=abierta&fecha_desde=2025-01-01&fecha_hasta=2025-01-07
-- http://127.0.0.1:8000/api/licitaciones/?estado=publicada&fecha_desde=2025-01-15
-- http://127.0.0.1:8000/api/licitaciones/?estado=publicada
-- http://127.0.0.1:8000/api/licitaciones/?codigo=12345-1-LQ25
+await this.mp.getLicitacionesPorEstado('publicada');
+// o
+await this.mp.getLicitacionPorCodigo('1234-5-LR24');
+```
 
-Notas
-- Usa siempre el slash final (/api/licitaciones/) para evitar redirecciones 301.
-- Define MERCADO_PUBLICO_API_KEY en .env antes de ejecutar.
+## Endpoints REST
+
+Base URL local: <http://localhost:3000>
+
+- GET /licitaciones
+  - Query:
+    - estado?: string (por defecto: publicada)
+    - codigo?: string (si envías ambos, se prioriza codigo)
+
+Ejemplos:
+
+- Por estado
+
+```bash
+curl "http://localhost:3000/licitaciones?estado=publicada"
+```
+
+- Por código
+
+```bash
+curl "http://localhost:3000/licitaciones?codigo=1234-5-LR24"
+```
+
+Respuesta (ejemplo resumido de Mercado Público):
+
+```json
+{
+  "Cantidad": 1,
+  "FechaCreacion": "2024-10-10T12:34:56Z",
+  "Listado": [
+    {
+      "CodigoExterno": "1234-5-LR24",
+      "Nombre": "Adquisición de servicios ...",
+      "Estado": "Publicada"
+      // ...
+    }
+  ]
+}
+```
+
+## Reintentos y límites de la API
+
+La API de Mercado Público puede responder con:
+
+- 429/5xx (saturación/indisponibilidad)
+- Cuerpo con error: `{"Codigo":10500,"Mensaje":"Lo sentimos. Hemos detectado que existen peticiones simultáneas."}`
+
+El servicio implementa reintentos automáticos con backoff simple:
+
+- MP_API_RETRY_ATTEMPTS: número de intentos (por defecto 3).
+- MP_API_RETRY_DELAY_MS: retraso base entre intentos en ms (por defecto 1500). El retraso crece linealmente por intento.
+
+Además, se cargan automáticamente variables desde .env.
+
+## Ejecución local
+
+```bash
+npm install
+npm run start:dev
+# Abrir: http://localhost:3000/licitaciones?estado=publicada
+```
